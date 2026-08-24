@@ -1,143 +1,249 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import Link from 'next/link'
+import { useAuth } from '@/context/AuthContext'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { CardSkeleton } from '@/components/LoadingSkeleton'
 
-interface Class {
-  id: string
-  name: string
-  schedule: string
-  weeks_in_year: number
-  created_at: string
+interface TeacherStats {
+  totalClasses: number
+  totalStudents: number
+  activeLists: number
+  upcomingQuizzes: number
 }
 
-export default function Dashboard() {
-  const [classes, setClasses] = useState<Class[]>([])
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
+export default function DashboardPage() {
+  const { user, loading: authLoading } = useAuth()
   const router = useRouter()
+  const [stats, setStats] = useState<TeacherStats>({
+    totalClasses: 0,
+    totalStudents: 0,
+    activeLists: 0,
+    upcomingQuizzes: 0,
+  })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    checkAuth()
-  }, [])
-
-  async function checkAuth() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    if (!authLoading && !user) {
       router.push('/login')
-      return
     }
+  }, [user, authLoading, router])
 
-    setUser(user)
-    fetchClasses()
-  }
+  useEffect(() => {
+    if (user) {
+      fetchStats()
+    }
+  }, [user])
 
-  async function fetchClasses() {
+  async function fetchStats() {
     try {
-      const response = await fetch('/api/classes')
-      const data = await response.json()
-      setClasses(data)
+      setLoading(true)
+
+      // Fetch teacher's classes
+      const { data: classes } = await supabase
+        .from('classes')
+        .select('id')
+        .eq('teacher_id', user?.id)
+
+      // Fetch total students
+      const { data: students } = await supabase
+        .from('class_students')
+        .select('id')
+        .in('class_id', classes?.map((c) => c.id) || [])
+
+      // Fetch active word lists
+      const { data: lists } = await supabase
+        .from('word_lists')
+        .select('id')
+        .eq('teacher_id', user?.id)
+        .eq('is_active', true)
+
+      // Fetch upcoming quizzes
+      const { data: quizzes } = await supabase
+        .from('quizzes')
+        .select('id')
+        .in('class_id', classes?.map((c) => c.id) || [])
+        .gte('scheduled_date', new Date().toISOString())
+
+      setStats({
+        totalClasses: classes?.length || 0,
+        totalStudents: students?.length || 0,
+        activeLists: lists?.length || 0,
+        upcomingQuizzes: quizzes?.length || 0,
+      })
     } catch (error) {
-      console.error('Error fetching classes:', error)
+      console.error('Error fetching stats:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  if (loading) {
+  if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg font-semibold">Loading...</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-8">
+            <CardSkeleton />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <nav className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-indigo-600">
-            Spaced Spelling
-          </h1>
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-indigo-600">
+              Spaced Spelling
+            </h1>
+            <p className="text-gray-600">Teacher Dashboard</p>
+          </div>
           <div className="flex items-center gap-4">
-            <span className="text-gray-700">
-              Welcome, {user?.email}
-            </span>
+            <span className="text-gray-700">{user?.email}</span>
             <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+              onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
             >
               Logout
             </button>
           </div>
         </div>
-      </nav>
+      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">My Classes</h2>
-          <Link
-            href="/classes/new"
-            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-semibold"
-          >
-            + New Class
-          </Link>
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Welcome Section */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Welcome back! 👋
+          </h2>
+          <p className="text-gray-600">
+            Here's your teaching dashboard with all your classes and activities.
+          </p>
         </div>
 
-        {classes.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg mb-4">
-              You haven't created any classes yet.
-            </p>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {/* Total Classes */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-semibold">
+                  Total Classes
+                </p>
+                <p className="text-3xl font-bold text-indigo-600 mt-2">
+                  {stats.totalClasses}
+                </p>
+              </div>
+              <div className="text-4xl">📚</div>
+            </div>
             <Link
-              href="/classes/new"
-              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+              href="/classes"
+              className="text-indigo-600 text-sm mt-4 hover:text-indigo-700 font-semibold inline-block"
             >
-              Create Your First Class
+              View All Classes →
             </Link>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {classes.map((cls) => (
-              <Link key={cls.id} href={`/classes/${cls.id}`}>
-                <div className="bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer p-6">
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">
-                    {cls.name}
-                  </h3>
-                  <div className="space-y-2 text-gray-600">
-                    <p>
-                      <span className="font-semibold">Schedule:</span>{' '}
-                      {cls.schedule.replace(/_/g, ' ')}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Weeks/Year:</span>{' '}
-                      {cls.weeks_in_year}
-                    </p>
-                    <p className="text-sm">
-                      Created: {new Date(cls.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="mt-4 pt-4 border-t">
-                    <button className="text-indigo-600 font-semibold hover:text-indigo-700">
-                      View Class →
-                    </button>
-                  </div>
-                </div>
-              </Link>
-            ))}
+
+          {/* Total Students */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-semibold">
+                  Total Students
+                </p>
+                <p className="text-3xl font-bold text-green-600 mt-2">
+                  {stats.totalStudents}
+                </p>
+              </div>
+              <div className="text-4xl">👥</div>
+            </div>
+            <Link
+              href="/students"
+              className="text-indigo-600 text-sm mt-4 hover:text-indigo-700 font-semibold inline-block"
+            >
+              Manage Students →
+            </Link>
           </div>
-        )}
-      </div>
+
+          {/* Active Word Lists */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-semibold">
+                  Active Word Lists
+                </p>
+                <p className="text-3xl font-bold text-blue-600 mt-2">
+                  {stats.activeLists}
+                </p>
+              </div>
+              <div className="text-4xl">📝</div>
+            </div>
+            <Link
+              href="/word-lists"
+              className="text-indigo-600 text-sm mt-4 hover:text-indigo-700 font-semibold inline-block"
+            >
+              Manage Lists →
+            </Link>
+          </div>
+
+          {/* Upcoming Quizzes */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm font-semibold">
+                  Upcoming Quizzes
+                </p>
+                <p className="text-3xl font-bold text-purple-600 mt-2">
+                  {stats.upcomingQuizzes}
+                </p>
+              </div>
+              <div className="text-4xl">🎯</div>
+            </div>
+            <Link
+              href="/quizzes"
+              className="text-indigo-600 text-sm mt-4 hover:text-indigo-700 font-semibold inline-block"
+            >
+              View Quizzes →
+            </Link>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Link
+              href="/classes/new"
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-semibold"
+            >
+              ➕ Create New Class
+            </Link>
+            <Link
+              href="/word-lists/new"
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+            >
+              ✍️ Create Word List
+            </Link>
+            <Link
+              href="/quizzes/new"
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
+            >
+              📋 Create Quiz
+            </Link>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
